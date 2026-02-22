@@ -1,0 +1,5 @@
+{
+  "name": "FitTrack",
+  "description": "A mobile-first fitness tracking application with activity monitoring, workout plans, and statistical analysis.",
+  "requestFramePermissions": []
+}
