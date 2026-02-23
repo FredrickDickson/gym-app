@@ -48,7 +48,7 @@ export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
 
     // Load or Generate Images
     const loadImages = async () => {
-      const existingImages = ImageService.getImages();
+      const existingImages = await ImageService.getImages();
       if (existingImages) {
         setImages(existingImages);
       } else {

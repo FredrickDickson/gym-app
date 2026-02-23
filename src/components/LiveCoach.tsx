@@ -13,12 +13,21 @@ export const LiveCoach: React.FC<LiveCoachProps> = ({ onClose }) => {
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [audioWorkletNode, setAudioWorkletNode] = useState<AudioWorkletNode | null>(null);
   const [session, setSession] = useState<any>(null);
+  const [transcription, setTranscription] = useState<string>("");
+  const [userTranscription, setUserTranscription] = useState<string>("");
   
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioQueue = useRef<Float32Array[]>([]);
+  const isPlaying = useRef(false);
 
   useEffect(() => {
-    connectToLiveAPI();
+    const connect = async () => {
+      try {
+        await connectToLiveAPI();
+      } catch (err) {
+        console.error("Connection failed", err);
+      }
+    };
+    connect();
     return () => {
       disconnect();
     };
@@ -42,105 +51,114 @@ export const LiveCoach: React.FC<LiveCoachProps> = ({ onClose }) => {
     setMediaStream(stream);
 
     const source = ctx.createMediaStreamSource(stream);
-    
-    // Simple processor to extract PCM data
-    // In a real app, use an AudioWorklet for better performance
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     
+    // Connect to Gemini Live
+    const sessionPromise = ai.live.connect({
+        model: "gemini-2.5-flash-native-audio-preview-09-2025",
+        callbacks: {
+            onopen: () => {
+                console.log("Live API Connected");
+                setIsConnected(true);
+            },
+            onmessage: async (message: LiveServerMessage) => {
+                // Handle Audio Output
+                const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+                if (base64Audio) {
+                    processAudioChunk(base64Audio, ctx);
+                }
+                
+                // Handle Transcription
+                if (message.serverContent?.modelTurn?.parts[0]?.text) {
+                    setTranscription(prev => prev + message.serverContent?.modelTurn?.parts[0]?.text);
+                }
+
+                if (message.serverContent?.turnComplete) {
+                    setIsSpeaking(false);
+                }
+
+                // Handle User Transcription
+                if (message.serverContent?.interrupted) {
+                    audioQueue.current = [];
+                    isPlaying.current = false;
+                    setIsSpeaking(false);
+                }
+            },
+            onclose: () => {
+                console.log("Live API Closed");
+                setIsConnected(false);
+            },
+            onerror: (err) => {
+                console.error("Live API Error", err);
+            }
+        },
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
+            },
+            systemInstruction: {
+                parts: [{ text: "You are an energetic and motivating fitness coach. Keep responses concise and encouraging. You can see the user through their camera if they enable it, but for now focus on voice interaction." }]
+            }
+        }
+    });
+
     processor.onaudioprocess = (e) => {
-        if (!session) return;
-        
         const inputData = e.inputBuffer.getChannelData(0);
-        // Convert Float32 to Int16
         const pcmData = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
             pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
         }
         
-        // Convert to Base64
         const base64 = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
         
-        session.sendRealtimeInput({
-            media: {
-                mimeType: "audio/pcm;rate=16000",
-                data: base64
-            }
+        sessionPromise.then((sess) => {
+            sess.sendRealtimeInput({
+                media: {
+                    mimeType: "audio/pcm;rate=16000",
+                    data: base64
+                }
+            });
         });
     };
 
     source.connect(processor);
     processor.connect(ctx.destination);
 
-    // Connect to Gemini Live
-    try {
-        const sessionPromise = ai.live.connect({
-            model: "gemini-2.5-flash-native-audio-preview-09-2025",
-            callbacks: {
-                onopen: () => {
-                    console.log("Live API Connected");
-                    setIsConnected(true);
-                },
-                onmessage: async (message: LiveServerMessage) => {
-                    // Handle Audio Output
-                    const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-                    if (base64Audio) {
-                        setIsSpeaking(true);
-                        playAudioChunk(base64Audio, ctx);
-                    }
-                    
-                    if (message.serverContent?.turnComplete) {
-                        setIsSpeaking(false);
-                    }
-                },
-                onclose: () => {
-                    console.log("Live API Closed");
-                    setIsConnected(false);
-                },
-                onerror: (err) => {
-                    console.error("Live API Error", err);
-                }
-            },
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
-                },
-                systemInstruction: {
-                    parts: [{ text: "You are an energetic and motivating fitness coach. Keep responses concise and encouraging." }]
-                }
-            }
-        });
-        
-        const sess = await sessionPromise;
-        setSession(sess);
-
-    } catch (err) {
-        console.error("Failed to connect", err);
-    }
+    const sess = await sessionPromise;
+    setSession(sess);
   };
 
-  const playAudioChunk = async (base64: string, ctx: AudioContext) => {
+  const processAudioChunk = (base64: string, ctx: AudioContext) => {
     const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
     }
     
-    // Decode PCM (assuming 24kHz output from Gemini usually, but let's try to decode or just play raw)
-    // The Live API output format is PCM. We need to play it.
-    // Ideally we queue these chunks. For simplicity here, we'll just try to play.
-    
-    // Note: Decoding raw PCM in browser requires creating a buffer manually.
-    // Gemini Live output is typically 24000Hz PCM.
-    
     const float32 = new Float32Array(bytes.length / 2);
     const dataView = new DataView(bytes.buffer);
-    
     for (let i = 0; i < bytes.length / 2; i++) {
-        const int16 = dataView.getInt16(i * 2, true); // Little endian
+        const int16 = dataView.getInt16(i * 2, true);
         float32[i] = int16 / 0x7FFF;
     }
+    
+    audioQueue.current.push(float32);
+    if (!isPlaying.current) {
+        playNextInQueue(ctx);
+    }
+  };
+
+  const playNextInQueue = (ctx: AudioContext) => {
+    if (audioQueue.current.length === 0) {
+        isPlaying.current = false;
+        setIsSpeaking(false);
+        return;
+    }
+
+    isPlaying.current = true;
+    setIsSpeaking(true);
+    const float32 = audioQueue.current.shift()!;
     
     const buffer = ctx.createBuffer(1, float32.length, 24000);
     buffer.getChannelData(0).set(float32);
@@ -148,65 +166,75 @@ export const LiveCoach: React.FC<LiveCoachProps> = ({ onClose }) => {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
+    source.onended = () => playNextInQueue(ctx);
     source.start();
-    
-    source.onended = () => setIsSpeaking(false);
   };
 
   const disconnect = () => {
-    if (session) {
-        // session.close() might not exist on the interface depending on SDK version, 
-        // but usually we just stop sending and close context.
-    }
     if (audioContext) audioContext.close();
     if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
     setIsConnected(false);
   };
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center text-white">
+    <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center text-white p-6">
       <button 
         onClick={onClose}
-        className="absolute top-6 right-6 p-2 bg-white/10 rounded-full"
+        className="absolute top-6 right-6 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
       >
         <X size={24} />
       </button>
 
       <div className="relative mb-12">
-        <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-300 ${
-            isSpeaking ? 'bg-[#FF6B6B] scale-110 shadow-[0_0_50px_rgba(255,107,107,0.5)]' : 
-            isConnected ? 'bg-blue-500 shadow-[0_0_30px_rgba(59,130,246,0.3)]' : 'bg-gray-700'
+        <div className={`w-40 h-40 rounded-full flex items-center justify-center transition-all duration-500 ${
+            isSpeaking ? 'bg-[#FF6B6B] scale-110 shadow-[0_0_60px_rgba(255,107,107,0.6)]' : 
+            isConnected ? 'bg-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.4)]' : 'bg-gray-800'
         }`}>
             {isSpeaking ? (
-                <Volume2 size={48} className="animate-pulse" />
+                <Volume2 size={64} className="animate-pulse" />
             ) : (
-                <Mic size={48} />
+                <Mic size={64} className={isConnected ? 'animate-bounce' : ''} />
             )}
         </div>
         
-        {/* Ripple effects */}
         {isConnected && (
             <>
-                <div className="absolute inset-0 rounded-full border border-white/20 animate-ping" style={{ animationDuration: '2s' }}></div>
+                <div className="absolute inset-0 rounded-full border-2 border-white/20 animate-ping" style={{ animationDuration: '2s' }}></div>
                 <div className="absolute inset-0 rounded-full border border-white/10 animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }}></div>
             </>
         )}
       </div>
 
-      <h2 className="text-2xl font-bold mb-2">
-        {isConnected ? (isSpeaking ? "Coach is speaking..." : "Listening...") : "Connecting..."}
-      </h2>
-      <p className="text-gray-400 text-center max-w-xs">
-        Ask about your workout form, nutrition advice, or motivation!
-      </p>
+      <div className="text-center space-y-4 max-w-md">
+        <h2 className="text-3xl font-bold tracking-tight">
+            {isConnected ? (isSpeaking ? "Coach is speaking..." : "Listening...") : "Connecting to Coach..."}
+        </h2>
+        
+        <div className="min-h-[100px] p-4 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-sm">
+            {transcription ? (
+                <p className="text-lg text-gray-200 leading-relaxed italic">"{transcription}"</p>
+            ) : (
+                <p className="text-gray-500 italic">
+                    {isConnected ? "Try saying: 'Give me a quick motivation boost' or 'How is my form?'" : "Initializing secure voice link..."}
+                </p>
+            )}
+        </div>
+      </div>
       
       {!isConnected && (
-        <div className="mt-8 flex gap-2">
-            <div className="w-2 h-2 bg-white/50 rounded-full animate-bounce"></div>
-            <div className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-            <div className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+        <div className="mt-12 flex gap-3">
+            <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce"></div>
+            <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            <div className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
         </div>
       )}
+
+      <div className="absolute bottom-12 left-0 right-0 flex justify-center">
+        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10 text-[10px] uppercase tracking-widest text-gray-500">
+            <Activity size={12} className="text-green-500" />
+            Real-time AI Coaching Active
+        </div>
+      </div>
     </div>
   );
 };
