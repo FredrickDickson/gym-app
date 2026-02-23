@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { X, Activity, Heart, Smartphone, CheckCircle2, AlertCircle, MapPin, Users } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { SettingsModal } from './SettingsModal';
 
 interface ProfileDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  onNavigate: (tab: string) => void;
 }
 
-export const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ isOpen, onClose }) => {
+export const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ isOpen, onClose, onNavigate }) => {
   const [healthConnected, setHealthConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState('Preferences');
 
   const handleConnect = () => {
     setIsSyncing(true);
@@ -57,6 +61,21 @@ export const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ isOpen, onClose })
             <p className="text-sm text-gray-500">Pro Member</p>
           </div>
         </div>
+
+        {/* Community Link */}
+        <button 
+          onClick={() => onNavigate('social')}
+          className="w-full bg-blue-50 p-4 rounded-2xl flex items-center gap-3 mb-8 hover:bg-blue-100 transition-colors"
+        >
+          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+            <Users size={20} />
+          </div>
+          <div className="text-left">
+            <h4 className="font-bold text-gray-900">Community</h4>
+            <p className="text-xs text-gray-500">Find buddies & join groups</p>
+          </div>
+          <div className="ml-auto w-2 h-2 bg-red-500 rounded-full"></div>
+        </button>
 
         {/* Gym Network Section */}
         <div className="mb-8">
@@ -159,9 +178,21 @@ export const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ isOpen, onClose })
         {/* Settings List */}
         <div className="space-y-2">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Settings</h3>
-          {['Account', 'Notifications', 'Privacy', 'Help & Support'].map((item) => (
-            <button key={item} className="w-full p-4 bg-white rounded-2xl shadow-sm border border-gray-100 text-left font-bold text-gray-700 hover:bg-gray-50">
-              {item}
+          {[
+            { label: 'Preferences', section: 'Preferences' },
+            { label: 'Integrations', section: 'Integrations' },
+            { label: 'Privacy', section: 'Privacy' },
+            { label: 'Data & Storage', section: 'Data' }
+          ].map((item) => (
+            <button 
+                key={item.label} 
+                onClick={() => {
+                    setSettingsSection(item.section);
+                    setShowSettings(true);
+                }}
+                className="w-full p-4 bg-white rounded-2xl shadow-sm border border-gray-100 text-left font-bold text-gray-700 hover:bg-gray-50"
+            >
+              {item.label}
             </button>
           ))}
         </div>
@@ -171,6 +202,16 @@ export const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ isOpen, onClose })
             Sign Out
           </button>
         </div>
+
+        <AnimatePresence>
+            {showSettings && (
+                <SettingsModal 
+                    isOpen={showSettings} 
+                    onClose={() => setShowSettings(false)} 
+                    initialSection={settingsSection}
+                />
+            )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );

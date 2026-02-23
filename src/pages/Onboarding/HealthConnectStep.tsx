@@ -6,7 +6,16 @@ interface HealthConnectStepProps {
 }
 
 export const HealthConnectStep: React.FC<HealthConnectStepProps> = ({ onNext }) => {
-  const [connected, setConnected] = React.useState(false);
+  const [connections, setConnections] = React.useState({
+    apple: false,
+    google: false
+  });
+
+  const toggleConnection = (type: 'apple' | 'google') => {
+    setConnections(prev => ({ ...prev, [type]: !prev[type] }));
+  };
+
+  const isAnyConnected = connections.apple || connections.google;
 
   return (
     <div className="flex flex-col h-full bg-white p-6 pt-12">
@@ -17,9 +26,9 @@ export const HealthConnectStep: React.FC<HealthConnectStepProps> = ({ onNext }) 
         </p>
 
         <div 
-          onClick={() => setConnected(!connected)}
+          onClick={() => toggleConnection('apple')}
           className={`p-6 rounded-3xl border-2 transition-all cursor-pointer flex items-center gap-4 mb-4 ${
-            connected 
+            connections.apple 
               ? 'border-[#FF6B6B] bg-red-50' 
               : 'border-gray-100 bg-white hover:border-gray-200'
           }`}
@@ -31,7 +40,25 @@ export const HealthConnectStep: React.FC<HealthConnectStepProps> = ({ onNext }) 
             <h3 className="font-bold text-gray-900">Apple Health</h3>
             <p className="text-xs text-gray-500">Steps, Sleep, Heart Rate</p>
           </div>
-          {connected && <CheckCircle2 size={24} className="text-[#FF6B6B]" />}
+          {connections.apple && <CheckCircle2 size={24} className="text-[#FF6B6B]" />}
+        </div>
+
+        <div 
+          onClick={() => toggleConnection('google')}
+          className={`p-6 rounded-3xl border-2 transition-all cursor-pointer flex items-center gap-4 mb-4 ${
+            connections.google 
+              ? 'border-[#4285F4] bg-blue-50' 
+              : 'border-gray-100 bg-white hover:border-gray-200'
+          }`}
+        >
+          <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center">
+            <Activity size={24} className="text-[#4285F4]" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-bold text-gray-900">Google Fit</h3>
+            <p className="text-xs text-gray-500">Activity, Nutrition, Sleep</p>
+          </div>
+          {connections.google && <CheckCircle2 size={24} className="text-[#4285F4]" />}
         </div>
         
         <div className="p-4 bg-gray-50 rounded-2xl text-xs text-gray-500 leading-relaxed">
@@ -43,7 +70,7 @@ export const HealthConnectStep: React.FC<HealthConnectStepProps> = ({ onNext }) 
         onClick={onNext}
         className="w-full py-4 bg-black text-white rounded-2xl font-bold text-lg shadow-lg flex items-center justify-center gap-2"
       >
-        {connected ? 'Continue' : 'Skip for Now'}
+        {isAnyConnected ? 'Continue' : 'Skip for Now'}
         <ArrowRight size={20} />
       </button>
     </div>

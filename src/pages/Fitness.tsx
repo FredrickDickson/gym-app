@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Play, QrCode, Search, Dumbbell, Calendar, ChevronRight, Zap, Trophy, Clock, Check, History, Filter, Plus, Timer, Edit2, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Play, QrCode, Search, Dumbbell, Calendar, ChevronRight, Zap, Trophy, Clock, Check, History, Filter, Plus, Timer, Edit2, Loader2, BarChart2 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { GymScanner } from '../components/GymScanner';
 import { PlanBuilder } from '../components/PlanBuilder';
 import { ExerciseDetailModal } from '../components/ExerciseDetailModal';
@@ -9,6 +10,8 @@ import { WorkoutService, EXERCISE_DATABASE } from '../services/workoutService';
 import { ImageService } from '../services/imageService';
 import { WorkoutSession, Exercise } from '../types/fitness';
 import { format } from 'date-fns';
+
+import { NearbyPlaces } from '../components/NearbyPlaces';
 
 export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
   const [showScanner, setShowScanner] = useState(false);
@@ -20,6 +23,7 @@ export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeEquipment, setActiveEquipment] = useState('All');
+  const [activeMuscleGroup, setActiveMuscleGroup] = useState('All');
   const [activeWorkoutDuration, setActiveWorkoutDuration] = useState<number | null>(null);
   const [editingSession, setEditingSession] = useState<WorkoutSession | null>(null);
   const [images, setImages] = useState<Record<string, string> | null>(null);
@@ -70,7 +74,15 @@ export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
 
   const handleScanComplete = (equipment: string[]) => {
     setShowScanner(false);
-    alert(`Built workout using: ${equipment.join(', ')}`);
+    // Auto-select equipment filter based on scan
+    if (equipment.includes('Dumbbells')) setActiveEquipment('Dumbbells');
+    else if (equipment.includes('Barbell')) setActiveEquipment('Barbell');
+    
+    // Show a toast or alert
+    const found = EXERCISE_DATABASE.filter(ex => 
+        equipment.some(eq => ex.equipment.toLowerCase().includes(eq.toLowerCase()))
+    );
+    alert(`Found ${found.length} exercises for your scanned equipment!`);
   };
 
   const handlePlanGenerated = (plan: any) => {
@@ -86,12 +98,60 @@ export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
 
   const CATEGORIES = ['All', 'Strength', 'Cardio', 'HIIT', 'Flexibility'];
   const EQUIPMENT_TYPES = ['Dumbbells', 'Barbell', 'Machines', 'Bodyweight'];
+  const MUSCLE_GROUPS = ['All', 'Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Abs'];
 
   // Mock "Up Next" exercises based on the service data
-  const upNextExercises = EXERCISE_DATABASE.slice(0, 4).map(ex => ({
-    ...ex,
-    videoUrl: images?.[`ex_${ex.id}`] || ex.videoUrl
-  }));
+  const upNextExercises = useMemo(() => {
+    let filtered = EXERCISE_DATABASE;
+
+    // Filter by Category
+    if (activeCategory !== 'All') {
+      filtered = filtered.filter(ex => ex.type === activeCategory);
+    }
+
+    // Filter by Equipment
+    if (activeEquipment !== 'All') {
+      filtered = filtered.filter(ex => ex.equipment.includes(activeEquipment));
+    }
+
+    // Filter by Muscle Group
+    if (activeMuscleGroup !== 'All') {
+      filtered = filtered.filter(ex => ex.muscleGroup === activeMuscleGroup);
+    }
+
+    // Filter by Search
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(ex => 
+        ex.name.toLowerCase().includes(q) || 
+        ex.muscleGroup.toLowerCase().includes(q)
+      );
+    }
+
+    return filtered.map(ex => ({
+      ...ex,
+      videoUrl: images?.[`ex_${ex.id}`] || ex.videoUrl
+    }));
+  }, [activeCategory, activeEquipment, searchQuery, images]);
+
+  // Prepare Chart Data
+  const chartData = useMemo(() => {
+    const last30Days = Array.from({length: 30}, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (29 - i));
+        return format(d, 'MMM d');
+    });
+
+    // Mock data generation based on history
+    return last30Days.map(day => {
+        const session = history.find(h => format(new Date(h.date), 'MMM d') === day);
+        return {
+            day,
+            duration: session ? session.duration / 60 : 0, // minutes
+            workouts: session ? 1 : 0
+        };
+    });
+  }, [history]);
 
   return (
     <div className="flex flex-col h-full overflow-y-auto pb-24 pt-28 px-6 bg-[#FAFAFA]">
@@ -218,7 +278,53 @@ export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
             {eq}
           </button>
         ))}
+        <div className="w-[1px] h-8 bg-gray-200 mx-1"></div>
+        {MUSCLE_GROUPS.map(mg => (
+          <button
+            key={mg}
+            onClick={() => setActiveMuscleGroup(mg)}
+            className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors ${
+              activeMuscleGroup === mg 
+                ? 'bg-gray-900 text-white' 
+                : 'bg-white text-gray-500 border border-gray-100 hover:bg-gray-50'
+            }`}
+          >
+            {mg}
+          </button>
+        ))}
       </div>
+
+      {/* Progress Chart */}
+      <section className="mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <BarChart2 size={16} />
+            Activity (Last 30 Days)
+          </h2>
+        </div>
+        <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm h-48">
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData.slice(-7)}> {/* Show last 7 days for better mobile view */}
+                    <XAxis 
+                        dataKey="day" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fontSize: 10, fill: '#9CA3AF'}} 
+                        dy={10}
+                    />
+                    <Tooltip 
+                        cursor={{fill: '#F3F4F6'}}
+                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'}}
+                    />
+                    <Bar dataKey="duration" radius={[4, 4, 0, 0]}>
+                        {chartData.slice(-7).map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.duration > 0 ? '#FF6B6B' : '#E5E7EB'} />
+                        ))}
+                    </Bar>
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+      </section>
 
       {/* Target Timeline & Compliance */}
       <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 mb-8">
@@ -302,18 +408,22 @@ export const FitnessPage = ({ onPlay }: { onPlay: () => void }) => {
           </div>
           
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-            {upNextExercises.map((ex) => (
-              <button 
-                key={ex.id} 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedExercise(ex);
-                }}
-                className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-bold text-gray-600 whitespace-nowrap border border-gray-100 hover:bg-gray-100 transition-colors"
-              >
-                {ex.name}
-              </button>
-            ))}
+            {upNextExercises.length > 0 ? (
+                upNextExercises.map((ex) => (
+                <button 
+                    key={ex.id} 
+                    onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedExercise(ex);
+                    }}
+                    className="px-3 py-1 bg-gray-50 rounded-lg text-xs font-bold text-gray-600 whitespace-nowrap border border-gray-100 hover:bg-gray-100 transition-colors"
+                >
+                    {ex.name}
+                </button>
+                ))
+            ) : (
+                <div className="text-xs text-gray-400 italic px-2">No exercises found.</div>
+            )}
           </div>
         </div>
       </section>

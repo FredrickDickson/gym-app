@@ -13,6 +13,7 @@ import { EditBodyPage } from './pages/EditBody';
 import { FitnessPage } from './pages/Fitness';
 import { NutritionPage } from './pages/Nutrition';
 import { ProgressPage } from './pages/Progress';
+import { SocialPage } from './pages/Social';
 import { WorkoutPlayerPage } from './pages/WorkoutPlayer';
 import { OnboardingFlow } from './pages/Onboarding/OnboardingFlow';
 import { AnimatePresence } from 'motion/react';
@@ -47,6 +48,7 @@ export default function App() {
       case 'fitness': return <FitnessPage onPlay={() => setShowPlayer(true)} />;
       case 'nutrition': return <NutritionPage />;
       case 'progress': return <ProgressPage />;
+      case 'social': return <SocialPage />;
       default: return <FitnessPage onPlay={() => setShowPlayer(true)} />;
     }
   };
@@ -56,7 +58,16 @@ export default function App() {
       {showPlayer && <WorkoutPlayerPage onClose={() => setShowPlayer(false)} />}
       
       <AnimatePresence>
-        {showProfile && <ProfileDrawer isOpen={showProfile} onClose={() => setShowProfile(false)} />}
+        {showProfile && (
+          <ProfileDrawer 
+            isOpen={showProfile} 
+            onClose={() => setShowProfile(false)} 
+            onNavigate={(tab) => {
+              setActiveTab(tab);
+              setShowProfile(false);
+            }}
+          />
+        )}
       </AnimatePresence>
 
       {/* Global UI Elements */}
